@@ -1,43 +1,37 @@
+#!/usr/bin/env python3
 import os
 import warnings
 
 import hydra
+import imageio
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import tqdm
-import imageio
-
 from omegaconf import DictConfig
 from PIL import Image
-from pytorch3d.renderer import (
-    PerspectiveCameras,
-    look_at_view_transform
-)
-import matplotlib.pyplot as plt
+from pytorch3d.renderer import look_at_view_transform
+from pytorch3d.renderer import PerspectiveCameras
 
-from sampler import sampler_dict
+from data_utils import create_surround_cameras
+from data_utils import dataset_from_config
+from data_utils import vis_grid
+from data_utils import vis_rays
+from dataset import get_nerf_datasets
+from dataset import trivial_collate
 from implicit import implicit_dict
-from renderer import renderer_dict
-from losses import eikonal_loss, sphere_loss, get_random_points, select_random_points
-
-from ray_utils import (
-    sample_images_at_xy,
-    get_pixels_from_image,
-    get_random_pixels_from_image,
-    get_rays_from_pixels
-)
-from data_utils import (
-    dataset_from_config,
-    create_surround_cameras,
-    vis_grid,
-    vis_rays,
-)
-from dataset import (
-    get_nerf_datasets,
-    trivial_collate,
-)
+from losses import eikonal_loss
+from losses import get_random_points
+from losses import select_random_points
+from losses import sphere_loss
+from ray_utils import get_pixels_from_image
+from ray_utils import get_random_pixels_from_image
+from ray_utils import get_rays_from_pixels
+from ray_utils import sample_images_at_xy
 from render_functions import render_geometry
 from render_functions import render_points_with_save
+from renderer import renderer_dict
+from sampler import sampler_dict
 
 
 # Model class containing:
@@ -45,11 +39,9 @@ from render_functions import render_points_with_save
 #   2) Sampling scheme which generates sample points along rays
 #   3) Renderer which can render an implicit function given a sampling scheme
 
+
 class Model(torch.nn.Module):
-    def __init__(
-        self,
-        cfg
-    ):
+    def __init__(self, cfg):
         super().__init__()
 
         # Get implicit function from config
@@ -58,46 +50,27 @@ class Model(torch.nn.Module):
         )
 
         # Point sampling (raymarching) scheme
-        self.sampler = sampler_dict[cfg.sampler.type](
-            cfg.sampler
-        )
+        self.sampler = sampler_dict[cfg.sampler.type](cfg.sampler)
 
         # Initialize implicit renderer
-        self.renderer = renderer_dict[cfg.renderer.type](
-            cfg.renderer
-        )
-    
-    def forward(
-        self,
-        ray_bundle,
-        light_dir=None
-    ):
+        self.renderer = renderer_dict[cfg.renderer.type](cfg.renderer)
+
+    def forward(self, ray_bundle, light_dir=None):
         # Call renderer with
         #  a) Implicit function
         #  b) Sampling routine
 
-        return self.renderer(
-            self.sampler,
-            self.implicit_fn,
-            ray_bundle,
-            light_dir
-        )
+        return self.renderer(self.sampler, self.implicit_fn, ray_bundle, light_dir)
 
 
 def render_images(
-    model,
-    cameras,
-    image_size,
-    save=False,
-    file_prefix='',
-    lights=None,
-    feat='color'
+    model, cameras, image_size, save=False, file_prefix="", lights=None, feat="color"
 ):
     all_images = []
     device = list(model.parameters())[0].device
 
     for cam_idx, camera in enumerate(cameras):
-        print(f'Rendering image {cam_idx}')
+        print(f"Rendering image {cam_idx}")
 
         with torch.no_grad():
             torch.cuda.empty_cache()
@@ -106,10 +79,12 @@ def render_images(
             camera = camera.to(device)
             light_dir = None
             # We assume the object is placed at the origin
-            origin = torch.tensor([0.0, 0.0, 0.0], device=device) 
-            light_location = None if lights is None else lights[cam_idx].location.to(device)
+            origin = torch.tensor([0.0, 0.0, 0.0], device=device)
+            light_location = (
+                None if lights is None else lights[cam_idx].location.to(device)
+            )
             if lights is not None:
-                light_dir = None #TODO: Use light location and origin to compute light direction
+                light_dir = None  # TODO: Use light location and origin to compute light direction
                 light_dir = torch.nn.functional.normalize(light_dir, dim=-1).view(-1, 3)
             xy_grid = get_pixels_from_image(image_size, camera)
             ray_bundle = get_rays_from_pixels(xy_grid, image_size, camera)
@@ -118,20 +93,13 @@ def render_images(
             out = model(ray_bundle, light_dir)
 
         # Return rendered features (colors)
-        image = np.array(
-            out[feat].view(
-                image_size[1], image_size[0], 3
-            ).detach().cpu()
-        )
+        image = np.array(out[feat].view(image_size[1], image_size[0], 3).detach().cpu())
         all_images.append(image)
 
         # Save
         if save:
-            plt.imsave(
-                f'{file_prefix}_{cam_idx}.png',
-                image
-            )
-    
+            plt.imsave(f"{file_prefix}_{cam_idx}.png", image)
+
     return all_images
 
 
@@ -140,28 +108,29 @@ def render(
 ):
     # Create model
     model = Model(cfg)
-    model = model.cuda(); model.eval()
+    model = model.cuda()
+    model.eval()
 
     # Render spiral
     cameras = create_surround_cameras(3.0, n_poses=20, up=(0.0, 0.0, 1.0))
-    all_images = render_images(
-        model, cameras, cfg.data.image_size
+    all_images = render_images(model, cameras, cfg.data.image_size)
+    imageio.mimsave(
+        "images/part_5.gif", [np.uint8(im * 255) for im in all_images], loop=0
     )
-    imageio.mimsave('images/part_5.gif', [np.uint8(im * 255) for im in all_images],loop=0)
 
 
 def create_model(cfg):
     # Create model
     model = Model(cfg)
-    model.cuda(); model.train()
+    model.cuda()
+    model.train()
 
     # Load checkpoints
     optimizer_state_dict = None
     start_epoch = 0
 
     checkpoint_path = os.path.join(
-        hydra.utils.get_original_cwd(),
-        cfg.training.checkpoint_path
+        hydra.utils.get_original_cwd(), cfg.training.checkpoint_path
     )
 
     if len(cfg.training.checkpoint_path) > 0:
@@ -203,9 +172,7 @@ def create_model(cfg):
     return model, optimizer, lr_scheduler, start_epoch, checkpoint_path
 
 
-def train_points(
-    cfg
-):
+def train_points(cfg):
     # Create model
     model, optimizer, lr_scheduler, start_epoch, checkpoint_path = create_model(cfg)
 
@@ -216,12 +183,16 @@ def train_points(
     point_cloud = np.load(cfg.data.point_cloud_path)
     all_points = torch.Tensor(point_cloud["verts"][::2]).cuda().view(-1, 3)
     all_points = all_points - torch.mean(all_points, dim=0).unsqueeze(0)
-    
+
     point_images = render_points_with_save(
-        all_points.unsqueeze(0), create_surround_cameras(3.0, n_poses=20, up=(0.0, 1.0, 0.0), focal_length=2.0),
-        cfg.data.image_size, file_prefix='points'
+        all_points.unsqueeze(0),
+        create_surround_cameras(3.0, n_poses=20, up=(0.0, 1.0, 0.0), focal_length=2.0),
+        cfg.data.image_size,
+        file_prefix="points",
     )
-    imageio.mimsave('images/part_6_input.gif', [np.uint8(im * 255) for im in point_images], loop=0)
+    imageio.mimsave(
+        "images/part_6_input.gif", [np.uint8(im * 255) for im in point_images], loop=0
+    )
 
     # Run the main training loop.
     for epoch in range(0, cfg.training.num_epochs):
@@ -233,25 +204,32 @@ def train_points(
 
             # Get distances and enforce point cloud loss
             distances, gradients = model.implicit_fn.get_distance_and_gradient(points)
-            loss = None # TODO (Q6): Point cloud SDF loss on distances
+            loss = None  # TODO (Q6): Point cloud SDF loss on distances
             point_loss = loss
 
             # Sample random points in bounding box
             eikonal_points = get_random_points(
-                cfg.training.batch_size, cfg.training.bounds, 'cuda'
+                cfg.training.batch_size, cfg.training.bounds, "cuda"
             )
 
             # Get sdf gradients and enforce eikonal loss
-            eikonal_distances, eikonal_gradients = model.implicit_fn.get_distance_and_gradient(eikonal_points)
-            loss += torch.exp(-1e2 * torch.abs(eikonal_distances)).mean() * cfg.training.inter_weight
-            loss += eikonal_loss(eikonal_gradients) * cfg.training.eikonal_weight # TODO (Q6): Implement eikonal loss
+            eikonal_distances, eikonal_gradients = (
+                model.implicit_fn.get_distance_and_gradient(eikonal_points)
+            )
+            loss += (
+                torch.exp(-1e2 * torch.abs(eikonal_distances)).mean()
+                * cfg.training.inter_weight
+            )
+            loss += (
+                eikonal_loss(eikonal_gradients) * cfg.training.eikonal_weight
+            )  # TODO (Q6): Implement eikonal loss
 
             # Take the training step.
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            t_range.set_description(f'Epoch: {epoch:04d}, Loss: {point_loss:.06f}')
+            t_range.set_description(f"Epoch: {epoch:04d}, Loss: {point_loss:.06f}")
             t_range.refresh()
 
         # Checkpoint.
@@ -271,25 +249,28 @@ def train_points(
             torch.save(data_to_store, checkpoint_path)
 
         # Render
-        if (
-            epoch % cfg.training.render_interval == 0
-            and epoch > 0
-        ):
+        if epoch % cfg.training.render_interval == 0 and epoch > 0:
             try:
                 test_images = render_geometry(
-                    model, create_surround_cameras(3.0, n_poses=20, up=(0.0, 1.0, 0.0), focal_length=2.0),
-                    cfg.data.image_size, file_prefix='eikonal', thresh=0.002,
+                    model,
+                    create_surround_cameras(
+                        3.0, n_poses=20, up=(0.0, 1.0, 0.0), focal_length=2.0
+                    ),
+                    cfg.data.image_size,
+                    file_prefix="eikonal",
+                    thresh=0.002,
                 )
-                imageio.mimsave('images/part_6.gif', [np.uint8(im * 255) for im in test_images], loop=0)
+                imageio.mimsave(
+                    "images/part_6.gif",
+                    [np.uint8(im * 255) for im in test_images],
+                    loop=0,
+                )
             except Exception as e:
                 print("Empty mesh")
                 pass
 
 
-def pretrain_sdf(
-    cfg,
-    model
-):
+def pretrain_sdf(cfg, model):
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=cfg.training.lr,
@@ -297,9 +278,7 @@ def pretrain_sdf(
 
     # Run the main training loop.
     for iter in range(0, cfg.training.pretrain_iters):
-        points = get_random_points(
-            cfg.training.batch_size, cfg.training.bounds, 'cuda'
-        )
+        points = get_random_points(cfg.training.batch_size, cfg.training.bounds, "cuda")
 
         # Run model forward
         distances = model.implicit_fn.get_distance(points)
@@ -311,9 +290,7 @@ def pretrain_sdf(
         optimizer.step()
 
 
-def train_images(
-    cfg
-):
+def train_images(cfg):
     # Create model
     model, optimizer, lr_scheduler, start_epoch, checkpoint_path = create_model(cfg)
 
@@ -347,34 +324,39 @@ def train_images(
             xy_grid = get_random_pixels_from_image(
                 cfg.training.batch_size, cfg.data.image_size, camera
             )
-            ray_bundle = get_rays_from_pixels(
-                xy_grid, cfg.data.image_size, camera
-            )
+            ray_bundle = get_rays_from_pixels(xy_grid, cfg.data.image_size, camera)
             rgb_gt = sample_images_at_xy(image, xy_grid)
 
             # Run model forward
             out = model(ray_bundle)
 
             # Color loss
-            loss = torch.mean(torch.square(rgb_gt - out['color']))
+            loss = torch.mean(torch.square(rgb_gt - out["color"]))
             image_loss = loss
 
             # Sample random points in bounding box
             eikonal_points = get_random_points(
-                cfg.training.batch_size, cfg.training.bounds, 'cuda'
+                cfg.training.batch_size, cfg.training.bounds, "cuda"
             )
 
             # Get sdf gradients and enforce eikonal loss
-            eikonal_distances, eikonal_gradients = model.implicit_fn.get_distance_and_gradient(eikonal_points)
-            loss += torch.exp(-1e2 * torch.abs(eikonal_distances)).mean() * cfg.training.inter_weight
-            loss += eikonal_loss(eikonal_gradients) * cfg.training.eikonal_weight # TODO (2): Implement eikonal loss
+            eikonal_distances, eikonal_gradients = (
+                model.implicit_fn.get_distance_and_gradient(eikonal_points)
+            )
+            loss += (
+                torch.exp(-1e2 * torch.abs(eikonal_distances)).mean()
+                * cfg.training.inter_weight
+            )
+            loss += (
+                eikonal_loss(eikonal_gradients) * cfg.training.eikonal_weight
+            )  # TODO (2): Implement eikonal loss
 
             # Take the training step.
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            t_range.set_description(f'Epoch: {epoch:04d}, Loss: {image_loss:.06f}')
+            t_range.set_description(f"Epoch: {epoch:04d}, Loss: {image_loss:.06f}")
             t_range.refresh()
 
         # Adjust the learning rate.
@@ -397,39 +379,49 @@ def train_images(
             torch.save(data_to_store, checkpoint_path)
 
         # Render
-        if (
-            epoch % cfg.training.render_interval == 0
-            and epoch > 0
-        ):
+        if epoch % cfg.training.render_interval == 0 and epoch > 0:
             test_images = render_images(
-                model, create_surround_cameras(4.0, n_poses=20, up=(0.0, 0.0, 1.0), focal_length=2.0),
-                cfg.data.image_size, file_prefix='volsdf'
+                model,
+                create_surround_cameras(
+                    4.0, n_poses=20, up=(0.0, 0.0, 1.0), focal_length=2.0
+                ),
+                cfg.data.image_size,
+                file_prefix="volsdf",
             )
-            imageio.mimsave('images/part_7.gif', [np.uint8(im * 255) for im in test_images], loop=0)
+            imageio.mimsave(
+                "images/part_7.gif", [np.uint8(im * 255) for im in test_images], loop=0
+            )
 
             try:
                 test_images = render_geometry(
-                    model, create_surround_cameras(4.0, n_poses=20, up=(0.0, 0.0, 1.0), focal_length=2.0),
-                    cfg.data.image_size, file_prefix='volsdf_geometry'
+                    model,
+                    create_surround_cameras(
+                        4.0, n_poses=20, up=(0.0, 0.0, 1.0), focal_length=2.0
+                    ),
+                    cfg.data.image_size,
+                    file_prefix="volsdf_geometry",
                 )
-                imageio.mimsave('images/part_7_geometry.gif', [np.uint8(im * 255) for im in test_images], loop=0)
+                imageio.mimsave(
+                    "images/part_7_geometry.gif",
+                    [np.uint8(im * 255) for im in test_images],
+                    loop=0,
+                )
             except Exception as e:
                 print("Empty mesh")
                 pass
-                
-@hydra.main(config_path='configs', config_name='torus')
+
+
+@hydra.main(config_path="configs", config_name="torus")
 def main(cfg: DictConfig):
     os.chdir(hydra.utils.get_original_cwd())
 
-    if cfg.type == 'render':
+    if cfg.type == "render":
         render(cfg)
-    elif cfg.type == 'train_points':
+    elif cfg.type == "train_points":
         train_points(cfg)
-    elif cfg.type == 'train_images':
+    elif cfg.type == "train_images":
         train_images(cfg)
 
 
 if __name__ == "__main__":
     main()
-
-

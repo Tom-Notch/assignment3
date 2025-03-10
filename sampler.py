@@ -1,17 +1,16 @@
+#!/usr/bin/env python3
 import math
 from typing import List
 
 import torch
-from ray_utils import RayBundle
 from pytorch3d.renderer.cameras import CamerasBase
+
+from ray_utils import RayBundle
 
 
 # Sampler which implements stratified (uniform) point sampling along rays
 class StratifiedRaysampler(torch.nn.Module):
-    def __init__(
-        self,
-        cfg
-    ):
+    def __init__(self, cfg):
         super().__init__()
 
         self.n_pts_per_ray = cfg.n_pts_per_ray
@@ -35,6 +34,4 @@ class StratifiedRaysampler(torch.nn.Module):
         )
 
 
-sampler_dict = {
-    'stratified': StratifiedRaysampler
-}
+sampler_dict = {"stratified": StratifiedRaysampler}

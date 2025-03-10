@@ -1,5 +1,7 @@
+#!/usr/bin/env python3
 import math
-from typing import List, NamedTuple
+from typing import List
+from typing import NamedTuple
 
 import torch
 import torch.nn.functional as F
@@ -11,6 +13,7 @@ from pytorch3d.renderer.cameras import CamerasBase
 #   2) Directions -- ray directions
 #   3) Sample points -- sample points along ray direction from ray origin
 #   4) Sample lengths -- distance of sample points from ray origin
+
 
 class RayBundle(object):
     def __init__(
@@ -60,7 +63,7 @@ class RayBundle(object):
     def _replace(self, **kwargs):
         for key in kwargs.keys():
             setattr(self, key, kwargs[key])
-        
+
         return self
 
 
@@ -96,7 +99,7 @@ def get_pixels_from_image(image_size, camera):
 
     # Create grid of coordinates
     xy_grid = torch.stack(
-        tuple( reversed( torch.meshgrid(y, x) ) ),
+        tuple(reversed(torch.meshgrid(y, x))),
         dim=-1,
     ).view(W * H, 2)
 
@@ -106,7 +109,7 @@ def get_pixels_from_image(image_size, camera):
 # Random subsampling of pixels from an image
 def get_random_pixels_from_image(n_pixels, image_size, camera):
     xy_grid = get_pixels_from_image(image_size, camera)
-    
+
     # TODO (Q2.1): Random subsampling of pixel coordinaters
     pass
 
@@ -121,13 +124,7 @@ def get_rays_from_pixels(xy_grid, image_size, camera):
     # TODO (Q1.3): Map pixels to points on the image plane at Z=1
     pass
 
-    ndc_points = torch.cat(
-        [
-            ndc_points,
-            torch.ones_like(ndc_points[..., -1:])
-        ],
-        dim=-1
-    )
+    ndc_points = torch.cat([ndc_points, torch.ones_like(ndc_points[..., -1:])], dim=-1)
 
     # TODO (Q1.3): Use camera.unproject to get world space points from NDC space points
     pass

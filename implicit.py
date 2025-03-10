@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import torch
 import torch.nn.functional as F
 from torch import autograd
@@ -7,42 +8,37 @@ from ray_utils import RayBundle
 
 # Sphere SDF class
 class SphereSDF(torch.nn.Module):
-    def __init__(
-        self,
-        cfg
-    ):
+    def __init__(self, cfg):
         super().__init__()
 
         self.radius = torch.nn.Parameter(
             torch.tensor(cfg.radius.val).float(), requires_grad=cfg.radius.opt
         )
         self.center = torch.nn.Parameter(
-            torch.tensor(cfg.center.val).float().unsqueeze(0), requires_grad=cfg.center.opt
+            torch.tensor(cfg.center.val).float().unsqueeze(0),
+            requires_grad=cfg.center.opt,
         )
 
     def forward(self, points):
         points = points.view(-1, 3)
 
-        return torch.linalg.norm(
-            points - self.center,
-            dim=-1,
-            keepdim=True
-        ) - self.radius
+        return (
+            torch.linalg.norm(points - self.center, dim=-1, keepdim=True) - self.radius
+        )
 
 
 # Box SDF class
 class BoxSDF(torch.nn.Module):
-    def __init__(
-        self,
-        cfg
-    ):
+    def __init__(self, cfg):
         super().__init__()
 
         self.center = torch.nn.Parameter(
-            torch.tensor(cfg.center.val).float().unsqueeze(0), requires_grad=cfg.center.opt
+            torch.tensor(cfg.center.val).float().unsqueeze(0),
+            requires_grad=cfg.center.opt,
         )
         self.side_lengths = torch.nn.Parameter(
-            torch.tensor(cfg.side_lengths.val).float().unsqueeze(0), requires_grad=cfg.side_lengths.opt
+            torch.tensor(cfg.side_lengths.val).float().unsqueeze(0),
+            requires_grad=cfg.side_lengths.opt,
         )
 
     def forward(self, points):
@@ -50,25 +46,24 @@ class BoxSDF(torch.nn.Module):
         diff = torch.abs(points - self.center) - self.side_lengths / 2.0
 
         signed_distance = torch.linalg.norm(
-            torch.maximum(diff, torch.zeros_like(diff)),
-            dim=-1
+            torch.maximum(diff, torch.zeros_like(diff)), dim=-1
         ) + torch.minimum(torch.max(diff, dim=-1)[0], torch.zeros_like(diff[..., 0]))
 
         return signed_distance.unsqueeze(-1)
 
+
 # Torus SDF class
 class TorusSDF(torch.nn.Module):
-    def __init__(
-        self,
-        cfg
-    ):
+    def __init__(self, cfg):
         super().__init__()
 
         self.center = torch.nn.Parameter(
-            torch.tensor(cfg.center.val).float().unsqueeze(0), requires_grad=cfg.center.opt
+            torch.tensor(cfg.center.val).float().unsqueeze(0),
+            requires_grad=cfg.center.opt,
         )
         self.radii = torch.nn.Parameter(
-            torch.tensor(cfg.radii.val).float().unsqueeze(0), requires_grad=cfg.radii.opt
+            torch.tensor(cfg.radii.val).float().unsqueeze(0),
+            requires_grad=cfg.radii.opt,
         )
 
     def forward(self, points):
@@ -79,32 +74,29 @@ class TorusSDF(torch.nn.Module):
                 torch.linalg.norm(diff[..., :2], dim=-1) - self.radii[..., 0],
                 diff[..., -1],
             ],
-            dim=-1
+            dim=-1,
         )
         return (torch.linalg.norm(q, dim=-1) - self.radii[..., 1]).unsqueeze(-1)
 
+
 sdf_dict = {
-    'sphere': SphereSDF,
-    'box': BoxSDF,
-    'torus': TorusSDF,
+    "sphere": SphereSDF,
+    "box": BoxSDF,
+    "torus": TorusSDF,
 }
 
 
 # Converts SDF into density/feature volume
 class SDFVolume(torch.nn.Module):
-    def __init__(
-        self,
-        cfg
-    ):
+    def __init__(self, cfg):
         super().__init__()
 
-        self.sdf = sdf_dict[cfg.sdf.type](
-            cfg.sdf
-        )
+        self.sdf = sdf_dict[cfg.sdf.type](cfg.sdf)
 
-        self.rainbow = cfg.feature.rainbow if 'rainbow' in cfg.feature else False
+        self.rainbow = cfg.feature.rainbow if "rainbow" in cfg.feature else False
         self.feature = torch.nn.Parameter(
-            torch.ones_like(torch.tensor(cfg.feature.val).float().unsqueeze(0)), requires_grad=cfg.feature.opt
+            torch.ones_like(torch.tensor(cfg.feature.val).float().unsqueeze(0)),
+            requires_grad=cfg.feature.opt,
         )
 
         self.alpha = torch.nn.Parameter(
@@ -116,11 +108,14 @@ class SDFVolume(torch.nn.Module):
 
     def _sdf_to_density(self, signed_distance):
         # Convert signed distance to density with alpha, beta parameters
-        return torch.where(
-            signed_distance > 0,
-            0.5 * torch.exp(-signed_distance / self.beta),
-            1 - 0.5 * torch.exp(signed_distance / self.beta),
-        ) * self.alpha
+        return (
+            torch.where(
+                signed_distance > 0,
+                0.5 * torch.exp(-signed_distance / self.beta),
+                1 - 0.5 * torch.exp(signed_distance / self.beta),
+            )
+            * self.alpha
+        )
 
     def forward(self, ray_bundle):
         sample_points = ray_bundle.sample_points.view(-1, 3)
@@ -140,16 +135,16 @@ class SDFVolume(torch.nn.Module):
         # Outputs
         if self.rainbow:
             base_color = torch.clamp(
-                torch.abs(sample_points - self.sdf.center),
-                0.02,
-                0.98
+                torch.abs(sample_points - self.sdf.center), 0.02, 0.98
             )
         else:
             base_color = 1.0
 
         out = {
-            'density': -torch.log(1.0 - density) / deltas,
-            'feature': base_color * self.feature * density.new_ones(sample_points.shape[0], 1)
+            "density": -torch.log(1.0 - density) / deltas,
+            "feature": base_color
+            * self.feature
+            * density.new_ones(sample_points.shape[0], 1),
         }
 
         return out
@@ -157,20 +152,16 @@ class SDFVolume(torch.nn.Module):
 
 # Converts SDF into density/feature volume
 class SDFSurface(torch.nn.Module):
-    def __init__(
-        self,
-        cfg
-    ):
+    def __init__(self, cfg):
         super().__init__()
 
-        self.sdf = sdf_dict[cfg.sdf.type](
-            cfg.sdf
-        )
-        self.rainbow = cfg.feature.rainbow if 'rainbow' in cfg.feature else False
+        self.sdf = sdf_dict[cfg.sdf.type](cfg.sdf)
+        self.rainbow = cfg.feature.rainbow if "rainbow" in cfg.feature else False
         self.feature = torch.nn.Parameter(
-            torch.ones_like(torch.tensor(cfg.feature.val).float().unsqueeze(0)), requires_grad=cfg.feature.opt
+            torch.ones_like(torch.tensor(cfg.feature.val).float().unsqueeze(0)),
+            requires_grad=cfg.feature.opt,
         )
-    
+
     def get_distance(self, points):
         points = points.view(-1, 3)
         return self.sdf(points)
@@ -180,18 +171,15 @@ class SDFSurface(torch.nn.Module):
 
         # Outputs
         if self.rainbow:
-            base_color = torch.clamp(
-                torch.abs(points - self.sdf.center),
-                0.02,
-                0.98
-            )
+            base_color = torch.clamp(torch.abs(points - self.sdf.center), 0.02, 0.98)
         else:
             base_color = 1.0
 
         return base_color * self.feature * points.new_ones(points.shape[0], 1)
-    
+
     def forward(self, points):
         return self.get_distance(points)
+
 
 class HarmonicEmbedding(torch.nn.Module):
     def __init__(
@@ -310,49 +298,37 @@ class NeuralSurface(torch.nn.Module):
         # TODO (Q6): Implement Neural Surface MLP to output per-point SDF
         # TODO (Q7): Implement Neural Surface MLP to output per-point color
 
-    def get_distance(
-        self,
-        points
-    ):
-        '''
+    def get_distance(self, points):
+        """
         TODO: Q6
         Output:
             distance: N X 1 Tensor, where N is number of input points
-        '''
+        """
         points = points.view(-1, 3)
         pass
-    
-    def get_color(
-        self,
-        points
-    ):
-        '''
+
+    def get_color(self, points):
+        """
         TODO: Q7
         Output:
             distance: N X 3 Tensor, where N is number of input points
-        '''
+        """
         points = points.view(-1, 3)
         pass
-    
-    def get_distance_color(
-        self,
-        points
-    ):
-        '''
+
+    def get_distance_color(self, points):
+        """
         TODO: Q7
         Output:
             distance, points: N X 1, N X 3 Tensors, where N is number of input points
         You may just implement this by independent calls to get_distance, get_color
             but, depending on your MLP implementation, it maybe more efficient to share some computation
-        '''
-        
+        """
+
     def forward(self, points):
         return self.get_distance(points)
 
-    def get_distance_and_gradient(
-        self,
-        points
-    ):
+    def get_distance_and_gradient(self, points):
         has_grad = torch.is_grad_enabled()
         points = points.view(-1, 3)
 
@@ -366,15 +342,15 @@ class NeuralSurface(torch.nn.Module):
                 torch.ones_like(distance, device=points.device),
                 create_graph=has_grad,
                 retain_graph=has_grad,
-                only_inputs=True
+                only_inputs=True,
             )[0]
-        
+
         return distance, gradient
 
 
 implicit_dict = {
-    'sdf_volume': SDFVolume,
-    'nerf': NeuralRadianceField,
-    'sdf_surface': SDFSurface,
-    'neural_surface': NeuralSurface,
+    "sdf_volume": SDFVolume,
+    "nerf": NeuralRadianceField,
+    "sdf_surface": SDFSurface,
+    "neural_surface": NeuralSurface,
 }

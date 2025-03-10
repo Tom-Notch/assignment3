@@ -1,39 +1,31 @@
+#!/usr/bin/env python3
 import os
 import warnings
 
 import hydra
+import imageio
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import tqdm
-import imageio
-
 from omegaconf import DictConfig
 from PIL import Image
-from pytorch3d.renderer import (
-    PerspectiveCameras,
-    look_at_view_transform
-)
-import matplotlib.pyplot as plt
+from pytorch3d.renderer import look_at_view_transform
+from pytorch3d.renderer import PerspectiveCameras
 
+from data_utils import create_surround_cameras
+from data_utils import dataset_from_config
+from data_utils import vis_grid
+from data_utils import vis_rays
+from dataset import get_nerf_datasets
+from dataset import trivial_collate
 from implicit import implicit_dict
-from sampler import sampler_dict
+from ray_utils import get_pixels_from_image
+from ray_utils import get_random_pixels_from_image
+from ray_utils import get_rays_from_pixels
+from ray_utils import sample_images_at_xy
 from renderer import renderer_dict
-from ray_utils import (
-    sample_images_at_xy,
-    get_pixels_from_image,
-    get_random_pixels_from_image,
-    get_rays_from_pixels
-)
-from data_utils import (
-    dataset_from_config,
-    create_surround_cameras,
-    vis_grid,
-    vis_rays,
-)
-from dataset import (
-    get_nerf_datasets,
-    trivial_collate,
-)
+from sampler import sampler_dict
 
 
 # Model class containing:
@@ -41,11 +33,9 @@ from dataset import (
 #   2) Sampling scheme which generates sample points along rays
 #   3) Renderer which can render an implicit volume given a sampling scheme
 
+
 class Model(torch.nn.Module):
-    def __init__(
-        self,
-        cfg
-    ):
+    def __init__(self, cfg):
         super().__init__()
 
         # Get implicit function from config
@@ -54,61 +44,48 @@ class Model(torch.nn.Module):
         )
 
         # Point sampling (raymarching) scheme
-        self.sampler = sampler_dict[cfg.sampler.type](
-            cfg.sampler
-        )
+        self.sampler = sampler_dict[cfg.sampler.type](cfg.sampler)
 
         # Initialize volume renderer
-        self.renderer = renderer_dict[cfg.renderer.type](
-            cfg.renderer
-        )
-    
-    def forward(
-        self,
-        ray_bundle
-    ):
+        self.renderer = renderer_dict[cfg.renderer.type](cfg.renderer)
+
+    def forward(self, ray_bundle):
         # Call renderer with
         #  a) Implicit volume
         #  b) Sampling routine
 
-        return self.renderer(
-            self.sampler,
-            self.implicit_fn,
-            ray_bundle
-        )
+        return self.renderer(self.sampler, self.implicit_fn, ray_bundle)
 
 
-def render_images(
-    model,
-    cameras,
-    image_size,
-    save=False,
-    file_prefix=''
-):
+def render_images(model, cameras, image_size, save=False, file_prefix=""):
     all_images = []
     device = list(model.parameters())[0].device
 
     for cam_idx, camera in enumerate(cameras):
-        print(f'Rendering image {cam_idx}')
+        print(f"Rendering image {cam_idx}")
 
         torch.cuda.empty_cache()
         camera = camera.to(device)
-        xy_grid = get_pixels_from_image(image_size, camera) # TODO (Q1.3): implement in ray_utils.py
-        ray_bundle = get_rays_from_pixels(xy_grid, image_size, camera) # TODO (Q1.3): implement in ray_utils.py
+        xy_grid = get_pixels_from_image(
+            image_size, camera
+        )  # TODO (Q1.3): implement in ray_utils.py
+        ray_bundle = get_rays_from_pixels(
+            xy_grid, image_size, camera
+        )  # TODO (Q1.3): implement in ray_utils.py
 
         # TODO (Q1.3): Visualize xy grid using vis_grid
-        if cam_idx == 0 and file_prefix == '':
+        if cam_idx == 0 and file_prefix == "":
             pass
 
         # TODO (Q1.3): Visualize rays using vis_rays
-        if cam_idx == 0 and file_prefix == '':
+        if cam_idx == 0 and file_prefix == "":
             pass
-        
+
         # TODO (Q1.4): Implement point sampling along rays in sampler.py
         pass
 
         # TODO (Q1.4): Visualize sample points as point cloud
-        if cam_idx == 0 and file_prefix == '':
+        if cam_idx == 0 and file_prefix == "":
             pass
 
         # TODO (Q1.5): Implement rendering in renderer.py
@@ -116,23 +93,18 @@ def render_images(
 
         # Return rendered features (colors)
         image = np.array(
-            out['feature'].view(
-                image_size[1], image_size[0], 3
-            ).detach().cpu()
+            out["feature"].view(image_size[1], image_size[0], 3).detach().cpu()
         )
         all_images.append(image)
 
         # TODO (Q1.5): Visualize depth
-        if cam_idx == 2 and file_prefix == '':
+        if cam_idx == 2 and file_prefix == "":
             pass
 
         # Save
         if save:
-            plt.imsave(
-                f'{file_prefix}_{cam_idx}.png',
-                image
-            )
-    
+            plt.imsave(f"{file_prefix}_{cam_idx}.png", image)
+
     return all_images
 
 
@@ -141,24 +113,24 @@ def render(
 ):
     # Create model
     model = Model(cfg)
-    model = model.cuda(); model.eval()
+    model = model.cuda()
+    model.eval()
 
     # Render spiral
     cameras = create_surround_cameras(3.0, n_poses=20)
-    all_images = render_images(
-        model, cameras, cfg.data.image_size
+    all_images = render_images(model, cameras, cfg.data.image_size)
+    imageio.mimsave(
+        "images/part_1.gif", [np.uint8(im * 255) for im in all_images], loop=0
     )
-    imageio.mimsave('images/part_1.gif', [np.uint8(im * 255) for im in all_images], loop=0)
 
 
-def train(
-    cfg
-):
+def train(cfg):
     # Create model
     model = Model(cfg)
-    model = model.cuda(); model.train()
+    model = model.cuda()
+    model.train()
 
-    # Create dataset 
+    # Create dataset
     train_dataset = dataset_from_config(cfg.data)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -169,17 +141,17 @@ def train(
     )
     image_size = cfg.data.image_size
 
-    # Create optimizer 
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=cfg.training.lr
-    )
+    # Create optimizer
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.training.lr)
 
     # Render images before training
-    cameras = [item['camera'] for item in train_dataset]
+    cameras = [item["camera"] for item in train_dataset]
     render_images(
-        model, cameras, image_size,
-        save=True, file_prefix='images/part_2_before_training'
+        model,
+        cameras,
+        image_size,
+        save=True,
+        file_prefix="images/part_2_before_training",
     )
 
     # Train
@@ -192,7 +164,9 @@ def train(
             camera = camera.cuda()
 
             # Sample rays
-            xy_grid = get_random_pixels_from_image(cfg.training.batch_size, image_size, camera) # TODO (Q2.1): implement in ray_utils.py
+            xy_grid = get_random_pixels_from_image(
+                cfg.training.batch_size, image_size, camera
+            )  # TODO (Q2.1): implement in ray_utils.py
             ray_bundle = get_rays_from_pixels(xy_grid, image_size, camera)
             rgb_gt = sample_images_at_xy(image, xy_grid)
 
@@ -208,36 +182,52 @@ def train(
             optimizer.step()
 
         if (epoch % 10) == 0:
-            t_range.set_description(f'Epoch: {epoch:04d}, Loss: {loss:.06f}')
+            t_range.set_description(f"Epoch: {epoch:04d}, Loss: {loss:.06f}")
             t_range.refresh()
 
     # Print center and side lengths
-    print("Box center:", tuple(np.array(model.implicit_fn.sdf.center.data.detach().cpu()).tolist()[0]))
-    print("Box side lengths:", tuple(np.array(model.implicit_fn.sdf.side_lengths.data.detach().cpu()).tolist()[0]))
+    print(
+        "Box center:",
+        tuple(np.array(model.implicit_fn.sdf.center.data.detach().cpu()).tolist()[0]),
+    )
+    print(
+        "Box side lengths:",
+        tuple(
+            np.array(model.implicit_fn.sdf.side_lengths.data.detach().cpu()).tolist()[0]
+        ),
+    )
 
     # Render images after training
     render_images(
-        model, cameras, image_size,
-        save=True, file_prefix='images/part_2_after_training'
+        model,
+        cameras,
+        image_size,
+        save=True,
+        file_prefix="images/part_2_after_training",
     )
     all_images = render_images(
-        model, create_surround_cameras(3.0, n_poses=20), image_size, file_prefix='part_2'
+        model,
+        create_surround_cameras(3.0, n_poses=20),
+        image_size,
+        file_prefix="part_2",
     )
-    imageio.mimsave('images/part_2.gif', [np.uint8(im * 255) for im in all_images], loop=0)
+    imageio.mimsave(
+        "images/part_2.gif", [np.uint8(im * 255) for im in all_images], loop=0
+    )
 
 
 def create_model(cfg):
     # Create model
     model = Model(cfg)
-    model.cuda(); model.train()
+    model.cuda()
+    model.train()
 
     # Load checkpoints
     optimizer_state_dict = None
     start_epoch = 0
 
     checkpoint_path = os.path.join(
-        hydra.utils.get_original_cwd(),
-        cfg.training.checkpoint_path
+        hydra.utils.get_original_cwd(), cfg.training.checkpoint_path
     )
 
     if len(cfg.training.checkpoint_path) > 0:
@@ -278,9 +268,8 @@ def create_model(cfg):
 
     return model, optimizer, lr_scheduler, start_epoch, checkpoint_path
 
-def train_nerf(
-    cfg
-):
+
+def train_nerf(cfg):
     # Create model
     model, optimizer, lr_scheduler, start_epoch, checkpoint_path = create_model(cfg)
 
@@ -311,9 +300,7 @@ def train_nerf(
             xy_grid = get_random_pixels_from_image(
                 cfg.training.batch_size, cfg.data.image_size, camera
             )
-            ray_bundle = get_rays_from_pixels(
-                xy_grid, cfg.data.image_size, camera
-            )
+            ray_bundle = get_rays_from_pixels(xy_grid, cfg.data.image_size, camera)
             rgb_gt = sample_images_at_xy(image, xy_grid)
 
             # Run model forward
@@ -327,7 +314,7 @@ def train_nerf(
             loss.backward()
             optimizer.step()
 
-            t_range.set_description(f'Epoch: {epoch:04d}, Loss: {loss:.06f}')
+            t_range.set_description(f"Epoch: {epoch:04d}, Loss: {loss:.06f}")
             t_range.refresh()
 
         # Adjust the learning rate.
@@ -350,30 +337,34 @@ def train_nerf(
             torch.save(data_to_store, checkpoint_path)
 
         # Render
-        if (
-            epoch % cfg.training.render_interval == 0
-            and epoch > 0
-        ):
+        if epoch % cfg.training.render_interval == 0 and epoch > 0:
             with torch.no_grad():
                 test_images = render_images(
-                    model, create_surround_cameras(4.0, n_poses=20, up=(0.0, 0.0, 1.0), focal_length=2.0),
-                    cfg.data.image_size, file_prefix='nerf'
+                    model,
+                    create_surround_cameras(
+                        4.0, n_poses=20, up=(0.0, 0.0, 1.0), focal_length=2.0
+                    ),
+                    cfg.data.image_size,
+                    file_prefix="nerf",
                 )
-                imageio.mimsave('images/part_3.gif', [np.uint8(im * 255) for im in test_images], loop=0)
+                imageio.mimsave(
+                    "images/part_3.gif",
+                    [np.uint8(im * 255) for im in test_images],
+                    loop=0,
+                )
 
 
-@hydra.main(config_path='./configs', config_name='sphere')
+@hydra.main(config_path="./configs", config_name="sphere")
 def main(cfg: DictConfig):
     os.chdir(hydra.utils.get_original_cwd())
 
-    if cfg.type == 'render':
+    if cfg.type == "render":
         render(cfg)
-    elif cfg.type == 'train':
+    elif cfg.type == "train":
         train(cfg)
-    elif cfg.type == 'train_nerf':
+    elif cfg.type == "train_nerf":
         train_nerf(cfg)
 
 
 if __name__ == "__main__":
     main()
-

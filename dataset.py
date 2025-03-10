@@ -1,12 +1,15 @@
+#!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
-
 import os
-from typing import List, Optional, Tuple
+from typing import List
+from typing import Optional
+from typing import Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import requests
 import torch
@@ -14,12 +17,8 @@ from PIL import Image
 from pytorch3d.renderer import PerspectiveCameras
 from torch.utils.data import Dataset
 
-import matplotlib.pyplot as plt
 
-
-DEFAULT_DATA_ROOT = os.path.join(
-    os.path.dirname(os.path.realpath(__file__)), "data"
-)
+DEFAULT_DATA_ROOT = os.path.join(os.path.dirname(os.path.realpath(__file__)), "data")
 
 DEFAULT_URL_ROOT = "https://dl.fbaipublicfiles.com/pytorch3d_nerf_data"
 
@@ -168,5 +167,3 @@ def download_data(
 
             with open(local_fl, "wb") as f:
                 f.write(r.content)
-
-

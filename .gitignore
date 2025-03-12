@@ -671,3 +671,9 @@ r2n2_shapenet_dataset_full/
 checkpoints/
 
 data/
+
+outputs/
+
+rays.png
+xy_grid.png
+point_sampling.png

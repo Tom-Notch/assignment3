@@ -75,18 +75,22 @@ def render_images(model, cameras, image_size, save=False, file_prefix=""):
 
         # TODO (Q1.3): Visualize xy grid using vis_grid
         if cam_idx == 0 and file_prefix == "":
-            pass
+            image = vis_grid(xy_grid=xy_grid, image_size=image_size)
+            plt.imsave("xy_grid.png", image)
 
         # TODO (Q1.3): Visualize rays using vis_rays
         if cam_idx == 0 and file_prefix == "":
-            pass
+            image = vis_rays(ray_bundle=ray_bundle, image_size=image_size)
+            plt.imsave("rays.png", image)
 
         # TODO (Q1.4): Implement point sampling along rays in sampler.py
-        pass
+        stratified_rays = model.sampler(ray_bundle)
 
         # TODO (Q1.4): Visualize sample points as point cloud
         if cam_idx == 0 and file_prefix == "":
-            pass
+            from render_functions import render_points
+
+            render_points("point_sampling.png", stratified_rays.sample_points)
 
         # TODO (Q1.5): Implement rendering in renderer.py
         out = model(ray_bundle)

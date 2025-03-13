@@ -92,8 +92,8 @@ def get_pixels_from_image(image_size, camera):
     W, H = image_size[0], image_size[1]
 
     # TODO (Q1.3): Generate pixel coordinates from [0, W] in x and [0, H] in y
-    x = torch.linspace(0, W, W)
-    y = torch.linspace(0, H, H)
+    x = torch.linspace(0, W, W, device=camera.device)
+    y = torch.linspace(0, H, H, device=camera.device)
 
     # TODO (Q1.3): Convert to the range [-1, 1] in both x and y
     x = (x / W) * 2 - 1
@@ -113,7 +113,9 @@ def get_random_pixels_from_image(n_pixels, image_size, camera):
     xy_grid = get_pixels_from_image(image_size, camera)
 
     # TODO (Q2.1): Random subsampling of pixel coordinaters
-    pass
+    xy_grid_flat = xy_grid.reshape(-1, 2)
+    indices = torch.randperm(xy_grid_flat.shape[0])
+    xy_grid_sub = xy_grid_flat[indices]
 
     # Return
     return xy_grid_sub.reshape(-1, 2)[:n_pixels]
@@ -134,7 +136,9 @@ def get_rays_from_pixels(xy_grid, image_size, camera):
     unprojected_points = camera.unproject_points(ndc_points, world_coordinates=True)
 
     # TODO (Q1.3): Get ray origins from camera center
-    rays_o = camera.get_camera_center().expand(W * H, 3)  # shape(num_rays, 3)
+    rays_o = camera.get_camera_center().expand(
+        unprojected_points.shape[0], 3
+    )  # shape(num_rays, 3)
 
     # TODO (Q1.3): Get ray directions as image_plane_points - rays_o
     rays_d = F.normalize(unprojected_points - rays_o)  # shape(num_rays, 3)

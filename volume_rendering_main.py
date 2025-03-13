@@ -7,6 +7,7 @@ import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.nn.functional as F
 import tqdm
 from omegaconf import DictConfig
 from PIL import Image
@@ -181,8 +182,9 @@ def train(cfg):
             # Run model forward
             out = model(ray_bundle)
 
+            # import ipdb; ipdb.set_trace()
             # TODO (Q2.2): Calculate loss
-            loss = None
+            loss = F.mse_loss(out["feature"], rgb_gt)
 
             # Backprop
             optimizer.zero_grad()

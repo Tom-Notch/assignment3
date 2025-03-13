@@ -286,7 +286,71 @@ class NeuralRadianceField(torch.nn.Module):
         embedding_dim_xyz = self.harmonic_embedding_xyz.output_dim
         embedding_dim_dir = self.harmonic_embedding_dir.output_dim
 
-        pass
+        # Build the main MLP for xyz.
+        # Using MLP with skip connections at layers specified in cfg.append_xyz.
+        n_layers_xyz = cfg.n_layers_xyz
+        hidden_dim = cfg.n_hidden_neurons_xyz
+        self.append_xyz = (
+            cfg.append_xyz
+        )  # e.g. [3] means at layer index 3, concatenate the original encoding.
+
+        # ModuleList to incorporate skip connections.
+        self.mlp_layers = torch.nn.ModuleList()
+        in_dim = embedding_dim_xyz
+        for i in range(n_layers_xyz):
+            # If a skip connection is scheduled at this layer, we add the original encoding.
+            if i in self.append_xyz:
+                in_dim += embedding_dim_xyz
+            self.mlp_layers.append(torch.nn.Linear(in_dim, hidden_dim))
+            in_dim = hidden_dim  # for the next layer
+
+        # Density head: predicts a scalar density (using ReLU to ensure non-negativity)
+        self.density_layer = torch.nn.Linear(hidden_dim, 1)
+
+        # Feature branch for color prediction.
+        # Here, we process the features from the xyz branch.
+        self.feature_layer = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.color_layer = torch.nn.Sequential(
+            torch.nn.Linear(hidden_dim, cfg.n_hidden_neurons_dir),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.Linear(cfg.n_hidden_neurons_dir, 3),
+            torch.nn.Sigmoid(),  # maps outputs to [0, 1]
+        )
+
+    def forward(self, ray_bundle: RayBundle):
+        """
+        Expects ray_bundle.sample_points of shape (N, M, 3), where:
+          N = number of rays,
+          M = number of sample points per ray.
+        Returns a dict with:
+          'density': (N, M, 1) non-negative density,
+          'feature': (N, M, 3) RGB color.
+        """
+        N, M, _ = ray_bundle.sample_points.shape
+        pts = ray_bundle.sample_points.view(-1, 3)  # (N*M, 3)
+        # Apply harmonic embedding to positions.
+        pts_encoded = self.harmonic_embedding_xyz(pts)  # (N*M, embedding_dim_xyz)
+
+        # Pass through the MLP with skip connections.
+        x = pts_encoded
+        for i, layer in enumerate(self.mlp_layers):
+            if i in self.append_xyz:
+                # Concatenate the original positional encoding as a skip connection.
+                x = torch.cat([x, pts_encoded], dim=-1)
+            x = layer(x)
+            x = torch.relu(x)
+        # Predict density (using ReLU to ensure non-negativity)
+        density = torch.relu(self.density_layer(x))  # (N*M, 1)
+
+        # Predict color via the feature branch.
+        feat = self.feature_layer(x)  # (N*M, hidden_dim)
+        color = self.color_layer(feat)  # (N*M, 3)
+
+        # Reshape outputs back to (N, M, *)
+        density = density.view(N, M, 1)
+        color = color.view(N, M, 3)
+
+        return {"density": density, "feature": color}
 
 
 class NeuralSurface(torch.nn.Module):

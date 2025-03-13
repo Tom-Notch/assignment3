@@ -5,7 +5,11 @@ import torch.nn.functional as F
 
 def eikonal_loss(gradients):
     # TODO (Q6): Implement eikonal loss
-    pass
+    # Compute the L2 norm of each gradient vector.
+    grad_norm = torch.norm(gradients, dim=-1)
+    # The eikonal loss encourages the norm to be 1.
+    loss = ((grad_norm - 1) ** 2).mean()
+    return loss
 
 
 def sphere_loss(signed_distance, points, radius=1.0):

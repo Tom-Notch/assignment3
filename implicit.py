@@ -286,34 +286,34 @@ class NeuralRadianceField(torch.nn.Module):
         embedding_dim_xyz = self.harmonic_embedding_xyz.output_dim
         embedding_dim_dir = self.harmonic_embedding_dir.output_dim
 
-        # Build the main MLP for xyz.
-        # Using MLP with skip connections at layers specified in cfg.append_xyz.
+        # === Density Branch (view-independent) ===
         n_layers_xyz = cfg.n_layers_xyz
-        hidden_dim = cfg.n_hidden_neurons_xyz
-        self.append_xyz = (
-            cfg.append_xyz
-        )  # e.g. [3] means at layer index 3, concatenate the original encoding.
+        hidden_dim_xyz = cfg.n_hidden_neurons_xyz
+        self.append_xyz = cfg.append_xyz  # e.g. [3] means skip connection at layer 3
 
-        # ModuleList to incorporate skip connections.
-        self.mlp_layers = torch.nn.ModuleList()
+        # Build a dedicated MLP for the density branch.
+        self.density_mlp = torch.nn.ModuleList()
         in_dim = embedding_dim_xyz
         for i in range(n_layers_xyz):
-            # If a skip connection is scheduled at this layer, we add the original encoding.
             if i in self.append_xyz:
                 in_dim += embedding_dim_xyz
-            self.mlp_layers.append(torch.nn.Linear(in_dim, hidden_dim))
-            in_dim = hidden_dim  # for the next layer
+            self.density_mlp.append(torch.nn.Linear(in_dim, hidden_dim_xyz))
+            in_dim = hidden_dim_xyz
 
-        # Density head: predicts a scalar density (using ReLU to ensure non-negativity)
-        self.density_layer = torch.nn.Linear(hidden_dim, 1)
+        # Final density output layer (1 scalar per point).
+        self.density_layer = torch.nn.Linear(hidden_dim_xyz, 1)
 
-        # Feature branch for color prediction.
-        # Here, we process the features from the xyz branch.
-        self.feature_layer = torch.nn.Linear(hidden_dim, hidden_dim)
+        # === Color Branch (view-dependent) ===
+        hidden_dim_dir = cfg.n_hidden_neurons_dir
+
+        # Use a separate feature layer to transform the spatial feature.
+        self.color_feature_layer = torch.nn.Linear(hidden_dim_xyz, hidden_dim_xyz)
+
+        # The color branch takes the processed spatial feature concatenated with the directional encoding.
         self.color_layer = torch.nn.Sequential(
-            torch.nn.Linear(hidden_dim, cfg.n_hidden_neurons_dir),
+            torch.nn.Linear(hidden_dim_xyz + embedding_dim_dir, hidden_dim_dir),
             torch.nn.ReLU(inplace=True),
-            torch.nn.Linear(cfg.n_hidden_neurons_dir, 3),
+            torch.nn.Linear(hidden_dim_dir, 3),
             torch.nn.Sigmoid(),  # maps outputs to [0, 1]
         )
 
@@ -327,29 +327,38 @@ class NeuralRadianceField(torch.nn.Module):
           'feature': (N, M, 3) RGB color.
         """
         N, M, _ = ray_bundle.sample_points.shape
-        pts = ray_bundle.sample_points.view(-1, 3)  # (N*M, 3)
-        # Apply harmonic embedding to positions.
-        pts_encoded = self.harmonic_embedding_xyz(pts)  # (N*M, embedding_dim_xyz)
+        # Flatten points for processing.
+        pts = ray_bundle.sample_points.view(-1, 3)  # shape (N x M, 3)
+        pts_encoded = self.harmonic_embedding_xyz(
+            pts
+        )  # shape (N x M, embedding_dim_xyz)
 
-        # Pass through the MLP with skip connections.
-        x = pts_encoded
-        for i, layer in enumerate(self.mlp_layers):
+        # ---- Density branch ----
+        x_density = pts_encoded
+        for i, layer in enumerate(self.density_mlp):
             if i in self.append_xyz:
-                # Concatenate the original positional encoding as a skip connection.
-                x = torch.cat([x, pts_encoded], dim=-1)
-            x = layer(x)
-            x = torch.relu(x)
-        # Predict density (using ReLU to ensure non-negativity)
-        density = torch.relu(self.density_layer(x))  # (N*M, 1)
+                x_density = torch.cat([x_density, pts_encoded], dim=-1)
+            x_density = layer(x_density)
+            x_density = torch.relu(x_density)
+        density = torch.relu(self.density_layer(x_density))  # (N x M, 1)
 
-        # Predict color via the feature branch.
-        feat = self.feature_layer(x)  # (N*M, hidden_dim)
-        color = self.color_layer(feat)  # (N*M, 3)
+        # ---- Color branch ----
+        # Process the spatial feature (obtained from density branch) with a dedicated layer.
+        feat = self.color_feature_layer(x_density)  # shape (N x M, hidden_dim)
+        # Process the ray directions.
+        # ray_bundle.directions: (N, 3) → expand to (N, M, 3) and flatten to (N x M, 3)
+        dirs = ray_bundle.directions.unsqueeze(1).expand(N, M, 3).reshape(-1, 3)
+        dir_encoded = self.harmonic_embedding_dir(
+            dirs
+        )  # shape (N*M, embedding_dim_dir)
 
-        # Reshape outputs back to (N, M, *)
+        # Concatenate spatial feature and directional encoding.
+        color_input = torch.cat([feat, dir_encoded], dim=-1)
+        color = self.color_layer(color_input)  # shape (N x M, 3)
+
+        # Reshape outputs back to (N, M, *).
         density = density.view(N, M, 1)
         color = color.view(N, M, 3)
-
         return {"density": density, "feature": color}
 
 

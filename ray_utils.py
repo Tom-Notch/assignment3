@@ -134,10 +134,10 @@ def get_rays_from_pixels(xy_grid, image_size, camera):
     unprojected_points = camera.unproject_points(ndc_points, world_coordinates=True)
 
     # TODO (Q1.3): Get ray origins from camera center
-    rays_o = camera.get_camera_center()
+    rays_o = camera.get_camera_center().expand(W * H, 3)  # shape(num_rays, 3)
 
     # TODO (Q1.3): Get ray directions as image_plane_points - rays_o
-    rays_d = (unprojected_points - rays_o).unsqueeze(0)  # shape(1, N, 3)
+    rays_d = F.normalize(unprojected_points - rays_o)  # shape(num_rays, 3)
 
     # Create and return RayBundle
     return RayBundle(

@@ -673,7 +673,3 @@ checkpoints/
 data/
 
 outputs/
-
-rays.png
-xy_grid.png
-point_sampling.png

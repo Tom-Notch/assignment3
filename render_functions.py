@@ -77,6 +77,8 @@ def render_points(filename, points, image_size=256, color=[0.7, 0.7, 1], device=
     if device is None:
         device = get_device()
 
+    _points = points.reshape(1, -1, 3)  # flatten
+
     # Get the renderer.
     points_renderer = get_points_renderer(image_size=256, radius=0.01)
 
@@ -84,11 +86,11 @@ def render_points(filename, points, image_size=256, color=[0.7, 0.7, 1], device=
     # vertices, faces = load_cow_mesh(cow_path)
     # vertices = vertices.unsqueeze(0)  # (N_v, 3) -> (1, N_v, 3)
     # faces = faces.unsqueeze(0)  # (N_f, 3) -> (1, N_f, 3)
-    textures = torch.ones(points.size()).to(device) * 0.5  # (1, N_v, 3)
+    textures = torch.ones(_points.size()).to(device) * 0.5  # (1, N_v, 3)
     rgb = textures * torch.tensor(color).to(device)  # (1, N_v, 3)
 
     point_cloud = pytorch3d.structures.pointclouds.Pointclouds(
-        points=points, features=rgb
+        points=_points, features=rgb
     )
 
     R, T = look_at_view_transform(10.0, 10.0, 96)

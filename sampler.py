@@ -27,21 +27,20 @@ class StratifiedRaysampler(torch.nn.Module):
             self.max_depth,
             self.n_pts_per_ray,
             device=ray_bundle.directions.device,
-        )
+        )[
+            None, :, None
+        ]  # shape(1, num_points_per_ray, 1)
 
         # TODO (Q1.4): Sample points from z values
-        normalized_direction = ray_bundle.directions / ray_bundle.directions.norm(
-            dim=-1, keepdim=True
+        # shape (num_rays, num_points_per_ray, 3)
+        sample_points = (
+            ray_bundle.origins[:, None, :] + ray_bundle.directions[:, None, :] * z_vals
         )
 
-        # shape (1, num_rays x num_points_per_ray, 3)
-        sample_points = (
-            ray_bundle.origins
-            + normalized_direction[:, :, None, :] * z_vals[None, None, :, None]
-        ).reshape(1, -1, 3)
-
         # Return
-        return ray_bundle._replace(
+        return RayBundle(
+            origins=ray_bundle.origins,
+            directions=ray_bundle.directions,
             sample_points=sample_points,
             sample_lengths=z_vals * torch.ones_like(sample_points[..., :1]),
         )

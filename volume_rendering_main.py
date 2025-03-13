@@ -24,6 +24,7 @@ from ray_utils import get_pixels_from_image
 from ray_utils import get_random_pixels_from_image
 from ray_utils import get_rays_from_pixels
 from ray_utils import sample_images_at_xy
+from render_functions import render_points
 from renderer import renderer_dict
 from sampler import sampler_dict
 
@@ -76,21 +77,19 @@ def render_images(model, cameras, image_size, save=False, file_prefix=""):
         # TODO (Q1.3): Visualize xy grid using vis_grid
         if cam_idx == 0 and file_prefix == "":
             image = vis_grid(xy_grid=xy_grid, image_size=image_size)
-            plt.imsave("xy_grid.png", image)
+            plt.imsave("images/xy_grid.png", image)
 
         # TODO (Q1.3): Visualize rays using vis_rays
         if cam_idx == 0 and file_prefix == "":
             image = vis_rays(ray_bundle=ray_bundle, image_size=image_size)
-            plt.imsave("rays.png", image)
+            plt.imsave("images/rays.png", image)
 
         # TODO (Q1.4): Implement point sampling along rays in sampler.py
         stratified_rays = model.sampler(ray_bundle)
 
         # TODO (Q1.4): Visualize sample points as point cloud
         if cam_idx == 0 and file_prefix == "":
-            from render_functions import render_points
-
-            render_points("point_sampling.png", stratified_rays.sample_points)
+            render_points("images/point_sampling.png", stratified_rays.sample_points)
 
         # TODO (Q1.5): Implement rendering in renderer.py
         out = model(ray_bundle)
@@ -103,7 +102,12 @@ def render_images(model, cameras, image_size, save=False, file_prefix=""):
 
         # TODO (Q1.5): Visualize depth
         if cam_idx == 2 and file_prefix == "":
-            pass
+            raw_depth = out["depth"]
+            normalized_depth = raw_depth / raw_depth.max()
+            plt.imsave(
+                "images/depth.png",
+                normalized_depth.view(image_size[1], image_size[0], -1).detach().cpu(),
+            )
 
         # Save
         if save:

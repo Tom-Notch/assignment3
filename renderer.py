@@ -123,6 +123,7 @@ class SphereTracingRenderer(torch.nn.Module):
         implicit_fn,
         origins,  # Nx3
         directions,  # Nx3
+        eps: float = 1e-3,  # We'll mark rays as having converged when their SDF value is below this epsilon.
     ):
         """
         Input:
@@ -139,7 +140,37 @@ class SphereTracingRenderer(torch.nn.Module):
         #   in order to compute intersection points of rays with the implicit surface
         # 2) Maintain a mask with the same batch dimension as the ray origins,
         #   indicating which points hit the surface, and which do not
-        pass
+
+        device = origins.device
+        N = origins.shape[0]
+        # Starting distance along each ray
+        t = torch.full((N,), self.near, device=device)  # (N,)
+        # Boolean mask for rays that have converged (hit the surface)
+        converged = torch.zeros((N,), dtype=torch.bool, device=device)
+
+        for _ in range(self.max_iters):
+            # Compute current points along each ray: (N, 3)
+            points = origins + t.unsqueeze(-1) * directions
+            # Evaluate SDF at these points. Expected shape is (N, 1), so squeeze last dim.
+            sdf = implicit_fn(points).squeeze(-1)  # (N,)
+            # Determine which active rays have reached the surface (within eps)
+            hit = sdf.abs() < eps
+
+            # Only update the mask for rays that are still active (haven't converged and t < far)
+            active = (t < self.far) & (~converged)
+            # For active rays, if they now satisfy the hit condition, mark them as converged.
+            converged = converged | (active & hit)
+            # For active rays that haven't hit, update t by marching along the ray.
+            t = torch.where(active & (~hit), t + sdf, t)
+            # If no ray is still active, we can break early.
+            if (~(converged | (t >= self.far))).sum() == 0:
+                break
+
+        # Final estimated intersection points.
+        final_points = origins + t.unsqueeze(-1) * directions
+        # Mask has shape (N, 1)
+        mask = converged.unsqueeze(-1)
+        return final_points, mask
 
     def forward(self, sampler, implicit_fn, ray_bundle, light_dir=None):
         B = ray_bundle.shape[0]

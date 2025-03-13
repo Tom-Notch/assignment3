@@ -208,9 +208,36 @@ class SphereTracingRenderer(torch.nn.Module):
         return out
 
 
-def sdf_to_density(signed_distance, alpha, beta):
+def sdf_to_density(
+    signed_distance: torch.Tensor,
+    alpha: float,
+    beta: float,
+):
+    """
+    Converts a signed distance value to volume density using the VolSDF formulation.
+
+    For points with signed_distance > 0 (outside the surface):
+      density = alpha * 0.5 * exp(-signed_distance / beta)
+    For points with signed_distance <= 0 (inside the surface):
+      density = alpha * (1 - 0.5 * exp(signed_distance / beta))
+
+    Args:
+        signed_distance: Tensor of SDF values.
+        alpha: Learnable scaling factor.
+        beta: Learnable parameter controlling the sharpness.
+        eps: A small constant for numerical stability.
+
+    Returns:
+        density: Tensor of volume densities.
+    """
     # TODO (Q7): Convert signed distance to density with alpha, beta parameters
-    pass
+    s = -signed_distance
+    density = alpha * torch.where(
+        s <= 0,
+        0.5 * torch.exp(s / beta),
+        1 - 0.5 * torch.exp(-s / beta),
+    )
+    return density
 
 
 class VolumeSDFRenderer(VolumeRenderer):
@@ -243,7 +270,9 @@ class VolumeSDFRenderer(VolumeRenderer):
             distance, color = implicit_fn.get_distance_color(
                 cur_ray_bundle.sample_points
             )
-            density = None  # TODO (Q7): convert SDF to density
+            density = sdf_to_density(
+                distance, self.alpha, self.beta
+            )  # TODO (Q7): convert SDF to density
 
             # Compute length of each ray segment
             depth_values = cur_ray_bundle.sample_lengths[..., 0]

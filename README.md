@@ -87,7 +87,7 @@ There are four major components of our differentiable volume rendering pipeline:
 - ***The sampling routine***: `StratifiedSampler` in `sampler.py`
 - ***The renderer***: `VolumeRenderer` in `renderer.py`
 
-`StratifiedSampler` provides a method for sampling multiple points along a ray traveling through the scene (also known as *raymarching*). Together, a sampler and a renderer describe a rendering pipeline. Like traditional graphics pipelines, this rendering procedure is independent of the scene and camera.
+`StratifiedSampler` provides a method for sampling multiple points along a ray traveling through the scene (also known as *ray marching*). Together, a sampler and a renderer describe a rendering pipeline. Like traditional graphics pipelines, this rendering procedure is independent of the scene and camera.
 
 The scene, sampler, and renderer are all packaged together under the `Model` class in `volume_rendering_main.py`. In particular the `Model`'s forward method invokes a `VolumeRenderer` instance with a sampling strategy and volume as input.
 
@@ -304,7 +304,7 @@ After this, you should be able to train a NeuralSurface representation by:
 python -m surface_rendering_main --config-name=points_surface
 ```
 
-This should save save `part_6_input.gif` and `part_6.gif` in the `images` folder. The former visualizes the input point cloud used for training, and the latter shows your prediction which you should include on the webpage alongwith brief descriptions of your MLP and eikonal loss. You might need to tune hyperparameters (e.g. number of layers, epochs, weight of regularization, etc.) for good results.
+This should save save `part_6_input.gif` and `part_6.gif` in the `images` folder. The former visualizes the input point cloud used for training, and the latter shows your prediction which you should include on the webpage along with brief descriptions of your MLP and eikonal loss. You might need to tune hyperparameters (e.g. number of layers, epochs, weight of regularization, etc.) for good results.
 
 ![Bunny geometry](ta_images/part_6.gif)
 
@@ -312,7 +312,7 @@ This should save save `part_6_input.gif` and `part_6.gif` in the `images` folder
 
 In this part, you will implement a function converting SDF -> volume density and extend the `NeuralSurface` class to predict color.
 
-- **Color Prediction**: Extend the the `NeuralSurface` class to predict per-point color. You may need to define a new MLP (a just a few new layers depending on how you implemented Q2). You should then implement the `get_color` and `get_distance_color` functions.
+- **Color Prediction**: Extend the the `NeuralSurface` class to predict per-point color. You may need to define a new MLP (adjust a few new layers depending on how you implemented Q2). You should then implement the `get_color` and `get_distance_color` functions.
 
 - **SDF to Density**: Read section 3.1 of the [VolSDF Paper](https://arxiv.org/pdf/2106.12052.pdf) and implement their formula converting signed distance to density in the `sdf_to_density` function in `renderer.py`. In your write-up, give an intuitive explanation of what the parameters `alpha` and `beta` are doing here. Also, answer the following questions:
 

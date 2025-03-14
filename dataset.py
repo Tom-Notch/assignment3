@@ -172,7 +172,7 @@ def get_nerf_datasets(
         for cami in range(n_cameras)
     ]
 
-    train_idx, val_idx, test_idx = resplit_indices(*train_data["split"], 0.2)
+    train_idx, val_idx, test_idx = resplit_indices(*train_data["split"], 1.0)
 
     train_dataset, val_dataset, test_dataset = [
         ListDataset(

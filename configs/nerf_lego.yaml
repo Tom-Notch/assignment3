@@ -13,7 +13,7 @@ training:
 
     checkpoint_path: ./checkpoints
     checkpoint_interval: 50
-    resume: true
+    resume: false
 
     render_interval: 10
 
@@ -40,6 +40,6 @@ implicit_function:
     n_harmonic_functions_dir: 2
     n_hidden_neurons_xyz: 128
     n_hidden_neurons_dir: 64
-    density_noise_std: 0.0
+    density_noise_std: 0.001
     n_layers_xyz: 6
     append_xyz: [3]

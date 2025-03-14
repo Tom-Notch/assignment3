@@ -53,6 +53,59 @@ class ListDataset(Dataset):
         return self._entries[index]
 
 
+def resplit_indices(
+    train_idx: List,
+    val_idx: List,
+    test_idx: List,
+    retain_proportion: float,
+):
+    """
+    Given distinct indices in train_idx, val_idx, and test_idx,
+    sample retain_proportion percentage indices evenly from train_idx as the new training indices.
+    Then, combine the remaining train indices with val_idx and test_idx,
+    and split the result evenly into new validation and test indices.
+
+    Args:
+        train_idx: list or array of training indices.
+        val_idx: list or array of validation indices.
+        test_idx: list or array of test indices.
+        retain_proportion: float in range (0, 1] to indicate the proportion of retained indices in train_idx
+
+    Returns:
+        new_train_idx: list of n_train training indices.
+        new_val_idx: list of validation indices (even split of remaining).
+        new_test_idx: list of test indices (even split of remaining).
+    """
+    # Sort the training indices for consistent ordering.
+    sorted_train = sorted(train_idx)
+
+    # Evenly sample n_train indices from sorted_train.
+    sample_positions = np.linspace(
+        0,
+        len(sorted_train) - 1,
+        int(retain_proportion * len(sorted_train)),
+        dtype=int,
+    )
+    new_train_idx = [sorted_train[i] for i in sample_positions]
+
+    # Build a set for fast lookup.
+    new_train_set = set(new_train_idx)
+
+    # The remaining indices from train_idx (those not sampled).
+    remaining_from_train = [i for i in sorted_train if i not in new_train_set]
+
+    # Combine the remaining train indices with the original val_idx and test_idx.
+    combined_remaining = remaining_from_train + list(val_idx) + list(test_idx)
+    combined_remaining = sorted(combined_remaining)
+
+    # Evenly split the combined remaining indices into two groups.
+    half = len(combined_remaining) // 2
+    new_val_idx = combined_remaining[:half]
+    new_test_idx = combined_remaining[half:]
+
+    return new_train_idx, new_val_idx, new_test_idx
+
+
 def get_nerf_datasets(
     dataset_name: str,  # 'lego | fern'
     image_size: Tuple[int, int],
@@ -119,7 +172,7 @@ def get_nerf_datasets(
         for cami in range(n_cameras)
     ]
 
-    train_idx, val_idx, test_idx = train_data["split"]
+    train_idx, val_idx, test_idx = resplit_indices(*train_data["split"], 0.2)
 
     train_dataset, val_dataset, test_dataset = [
         ListDataset(

@@ -23,7 +23,7 @@ data:
 
 renderer:
     type: volume
-    chunk_size: 32768
+    chunk_size: 16384
     white_background: false
 
 sampler:

@@ -286,6 +286,10 @@ class NeuralRadianceField(torch.nn.Module):
         embedding_dim_xyz = self.harmonic_embedding_xyz.output_dim
         embedding_dim_dir = self.harmonic_embedding_dir.output_dim
 
+        self.density_noise_std = (
+            cfg.density_noise_std
+        )  # to avoid trivial solution of 0 density
+
         # === Density Branch (view-independent) ===
         n_layers_xyz = cfg.n_layers_xyz
         hidden_dim_xyz = cfg.n_hidden_neurons_xyz
@@ -340,11 +344,17 @@ class NeuralRadianceField(torch.nn.Module):
                 x_density = torch.cat([x_density, pts_encoded], dim=-1)
             x_density = layer(x_density)
             x_density = torch.relu(x_density)
-        density = torch.relu(self.density_layer(x_density))  # (N x M, 1)
+        density = self.density_layer(x_density)
+
+        if self.training and self.density_noise_std > 0.0:
+            noise = torch.randn_like(density) * self.density_noise_std
+            density = density + noise
+
+        density = torch.relu(density)  # (N x M, 1)
 
         # ---- Color branch ----
         # Process the spatial feature (obtained from density branch) with a dedicated layer.
-        feat = self.color_feature_layer(x_density)  # shape (N x M, hidden_dim)
+        feature = self.color_feature_layer(x_density)  # shape (N x M, hidden_dim)
         # Process the ray directions.
         # ray_bundle.directions: (N, 3) → expand to (N, M, 3) and flatten to (N x M, 3)
         dirs = ray_bundle.directions.unsqueeze(1).expand(N, M, 3).reshape(-1, 3)
@@ -353,7 +363,7 @@ class NeuralRadianceField(torch.nn.Module):
         )  # shape (N*M, embedding_dim_dir)
 
         # Concatenate spatial feature and directional encoding.
-        color_input = torch.cat([feat, dir_encoded], dim=-1)
+        color_input = torch.cat([feature, dir_encoded], dim=-1)
         color = self.color_layer(color_input)  # shape (N x M, 3)
 
         # Reshape outputs back to (N, M, *).

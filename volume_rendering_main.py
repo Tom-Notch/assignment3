@@ -186,7 +186,7 @@ def train(cfg):
             # TODO (Q2.2): Calculate loss
             loss = F.mse_loss(out["feature"], rgb_gt)
 
-            # Backprop
+            # Back prop
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -301,6 +301,7 @@ def train_nerf(cfg):
     for epoch in range(start_epoch, cfg.training.num_epochs):
         t_range = tqdm.tqdm(enumerate(train_dataloader))
 
+        model.train()
         for iteration, batch in t_range:
             image, camera, camera_idx = batch[0].values()
             image = image.cuda().unsqueeze(0)
@@ -348,6 +349,7 @@ def train_nerf(cfg):
 
         # Render
         if epoch % cfg.training.render_interval == 0 and epoch > 0:
+            model.eval()
             with torch.no_grad():
                 test_images = render_images(
                     model,
